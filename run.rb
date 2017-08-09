@@ -24,15 +24,10 @@ label_counts = prs.each_with_object(Hash.new(0)) do |pr, hash|
 end
 
 # Get reviewers for each pr
-reviews_requested = prs.each_with_object(Hash.new([])) do |pr, hash|
+reviews_requested_count = prs.each_with_object(Hash.new(0)) do |pr, hash|
   usernames = gh_client.pull_request_review_requests(ENV['GITHUB_REPO'], pr.number).map(&:login)
-  usernames.each { |username| hash[username] += [pr.number] }
+  usernames.each { |username| hash[username] += 1 }
 end
-
-# Get counts for easy sorting
-reviews_requested_count = reviews_requested.map do |username, prs|
-  [username, prs.count]
-end.to_h
 
 # Post message to Slack
 def slack(text)
@@ -46,23 +41,37 @@ def slack(text)
   http.request(request)
 end
 
-def slack_format_github_pr_link(pr_number)
-  "<https://github.com/#{ENV['GITHUB_REPO']}/pull/#{pr_number}|##{pr_number}>"
+def link_to_all_prs_with_label(label)
+  query = "is:open is:pr label:#{label}"
+  "<#{url_for_pr_list(query)}|#{label}>"
 end
 
-output = ""
-
-output << "Open PRs: #{prs.count}\n"
-label_counts.to_a.map(&:reverse).sort.reverse.each do |count, label|
-  output << "#{count} with label *#{label}*\n"
-end
-output << "\n"
-reviews_requested_count.to_a.map(&:reverse).sort.reverse.each do |count, username|
-  output << "#{count} reviews requested of *#{username}*: #{reviews_requested[username].map { |pr_number| slack_format_github_pr_link(pr_number) }.join(", ")}\n"
+def link_to_all_prs_with_review_requested_for(username)
+  url = "https://github.com/#{ENV['GITHUB_REPO']}/pulls/review-requested/#{username}"
+  "<#{url}|#{username}>"
 end
 
+def url_for_pr_list(query)
+  "https://github.com/#{ENV['GITHUB_REPO']}/pulls?q=#{URI.escape(query)}"
+end
+
+def pr_summary_message(prs, label_counts)
+  output = "Open PRs: #{prs.count}\n"
+  output << label_counts.to_a.map(&:reverse).sort.reverse.map do |count, label|
+    "#{count} with label #{link_to_all_prs_with_label(label)}\n"
+  end.join
+end
+
+def reviews_requested_message(reviews_requested_count)
+  reviews_requested_count.to_a.map(&:reverse).sort.reverse.map do |count, username|
+    "#{count} reviews requested of #{link_to_all_prs_with_review_requested_for(username)}\n"
+  end.join
+end
+
+output = pr_summary_message(prs, label_counts) + reviews_requested_message(reviews_requested_count)
 puts output
 
 if ENV['SLACK_WEBHOOK_URL']
-  slack(output)
+  slack pr_summary_message(prs, label_counts)
+  slack reviews_requested_message(reviews_requested_count)
 end
