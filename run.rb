@@ -25,7 +25,8 @@ end
 
 # Get reviewers for each pr
 reviews_requested_count = prs.each_with_object(Hash.new(0)) do |pr, hash|
-  usernames = gh_client.pull_request_review_requests(ENV['GITHUB_REPO'], pr.number).map(&:login)
+  review_requests = gh_client.pull_request_review_requests(ENV['GITHUB_REPO'], pr.number)
+  usernames = review_requests[:users].map(&:login)
   usernames.each { |username| hash[username] += 1 }
 end
 
